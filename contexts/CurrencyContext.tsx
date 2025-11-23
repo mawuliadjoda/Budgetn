@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, TextInput } from 'react-native';
 import CurrencyConversionDialog from '../components/CurrencyConversionDialog';
-import { getDatabase } from '../services/database';
+import { getTransactions, updateTransaction, Transaction } from '../services/database';
 import { useTransactions } from './TransactionContext';
 
 interface CurrencyContextType {
@@ -133,23 +133,13 @@ export const useCurrency = () => {
   return context;
 };
 
-interface Transaction {
-  id: number;
-  amount: number;
-}
-
 async function convertExistingTransactions(newRate: number, oldRate: number) {
   try {
-    const db = getDatabase();
-    const transactions = await db.getAllAsync('SELECT * FROM transactions') as Transaction[];
-    
+    const transactions = await getTransactions();
+
     for (const transaction of transactions) {
       const newAmount = transaction.amount * newRate;
-      
-      await db.runAsync(
-        'UPDATE transactions SET amount = ? WHERE id = ?',
-        [newAmount, transaction.id]
-      );
+      await updateTransaction({ ...transaction, amount: newAmount });
     }
   } catch (error) {
     console.error('Error converting transactions:', error);
