@@ -1,6 +1,10 @@
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 
+// Debug: afficher le module expo-sqlite et si openDatabase est présent
+console.log('expo-sqlite module:', SQLite);
+console.log('openDatabase typeof:', typeof (SQLite as any).openDatabase);
+
 // Types
 export interface Transaction {
   id: string;
@@ -15,29 +19,49 @@ export interface Transaction {
 
 // --- Helpers basés sur l'API "classique" de expo-sqlite ---
 
-let db: SQLite.SQLiteDatabase | null = null;
+let db: any = null;
 
-const getDb = (): SQLite.SQLiteDatabase => {
+const isSqliteAvailable = () => {
+  return !!(SQLite && typeof (SQLite as any).openDatabase === 'function');
+};
+
+const getDb = (): any | null => {
   if (!db) {
     if (Platform.OS === 'web') {
-      throw new Error('SQLite is not supported on web in this project.');
+      // Explicitly don't support web for native sqlite in this project
+      console.warn('SQLite: web platform detected — native sqlite is not available.');
+      return null;
     }
-    db = SQLite.openDatabase('budgetn.db');
+
+    if (!isSqliteAvailable()) {
+      console.warn(
+        'expo-sqlite is not available (SQLite.openDatabase is undefined).\n' +
+        'Make sure `expo-sqlite` is installed and configured: run `npx expo install expo-sqlite`.\n' +
+        'If you are running a custom client or bare workflow, rebuild the native app so the module is linked.'
+      );
+      return null;
+    }
+
+    db = (SQLite as any).openDatabase('budgetn.db');
   }
   return db;
 };
 
-const runAsync = (sql: string, params: any[] = []): Promise<SQLite.SQLResultSet> => {
+const runAsync = (sql: string, params: any[] = []): Promise<any> => {
   return new Promise((resolve, reject) => {
     const database = getDb();
-    database.transaction(tx => {
+    if (!database) {
+      return reject(new Error('SQLite database is not available at runtime.'));
+    }
+
+    database.transaction((tx: any) => {
       tx.executeSql(
         sql,
         params,
-        (_, result) => resolve(result),
-        (_, error) => {
+        (_tx: any, result: any) => resolve(result),
+        (_tx: any, error: any) => {
           reject(error);
-          // retourner true pour stopper la transaction
+          // retourner vrai pour stopper la transaction
           return true;
         }
       );
@@ -100,6 +124,18 @@ export const initDatabase = async () => {
     return true;
   } catch (error) {
     console.error('Error initializing database:', error);
+    // If SQLite is not available at runtime, don't crash the whole app.
+    const errAny: any = error;
+    const msg = (errAny && (errAny.message || String(errAny))) || '';
+    if (
+      msg.includes('SQLite database is not available at runtime') ||
+      msg.includes('expo-sqlite is not available') ||
+      msg.includes('SQLite.openDatabase is undefined')
+    ) {
+      console.warn('SQLite unavailable — continuing without database.');
+      return false;
+    }
+
     throw error;
   }
 };
