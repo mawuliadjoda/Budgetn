@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import axios from 'axios';
+import * as FileSystem from 'expo-file-system';
 
 // Types
 export interface Transaction {
@@ -37,6 +39,89 @@ const writeAll = async (items: Transaction[]): Promise<void> => {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch (error) {
     console.error('Error writing transactions to AsyncStorage:', error);
+    throw error;
+  }
+};
+
+// File system helpers (export/import JSON file)
+const JSON_FILENAME = 'budgetn_transactions.json';
+const JSON_PATH = ((FileSystem as any).documentDirectory || '') + JSON_FILENAME;
+
+export const exportToJsonFile = async (): Promise<string> => {
+  try {
+    const items = await readAll();
+    await FileSystem.writeAsStringAsync(JSON_PATH, JSON.stringify(items));
+    return JSON_PATH;
+  } catch (error) {
+    console.error('Error exporting JSON file:', error);
+    throw error;
+  }
+};
+
+export const importFromJsonFile = async (uri?: string): Promise<void> => {
+  try {
+    const path = uri || JSON_PATH;
+    const exists = await FileSystem.getInfoAsync(path);
+    if (!exists.exists) throw new Error('JSON file not found: ' + path);
+    const raw = await FileSystem.readAsStringAsync(path);
+    const items = JSON.parse(raw) as Transaction[];
+    await writeAll(items || []);
+  } catch (error) {
+    console.error('Error importing JSON file:', error);
+    throw error;
+  }
+};
+
+// Remote sync helpers using axios. These expect the remote API to expose:
+// GET  {apiUrl}/transactions            -> returns Transaction[]
+// POST {apiUrl}/transactions/bulk       -> accepts Transaction[] to replace/merge
+
+export const fetchRemoteTransactions = async (apiUrl: string): Promise<Transaction[]> => {
+  try {
+    const url = apiUrl.replace(/\/$/, '') + '/transactions';
+    const res = await axios.get(url);
+    const data = res.data as Transaction[];
+    if (Array.isArray(data)) {
+      await writeAll(data);
+      return data;
+    }
+    throw new Error('Invalid data from remote');
+  } catch (error) {
+    console.error('Error fetching remote transactions:', error);
+    throw error;
+  }
+};
+
+export const pushLocalTransactions = async (apiUrl: string): Promise<void> => {
+  try {
+    const url = apiUrl.replace(/\/$/, '') + '/transactions/bulk';
+    const items = await readAll();
+    await axios.post(url, items);
+  } catch (error) {
+    console.error('Error pushing local transactions to remote:', error);
+    throw error;
+  }
+};
+
+export const syncWithRemote = async (apiUrl: string): Promise<{ pulled: number; pushed: number }> => {
+  let pulled = 0;
+  let pushed = 0;
+  try {
+    // Try to push local first (best-effort)
+    try {
+      await pushLocalTransactions(apiUrl);
+      pushed = 1;
+    } catch (pushErr) {
+      // ignore push errors — we'll still try to pull
+      console.warn('pushLocalTransactions failed:', pushErr);
+    }
+
+    // Then pull remote canonical list
+    const remote = await fetchRemoteTransactions(apiUrl);
+    pulled = Array.isArray(remote) ? remote.length : 0;
+    return { pulled, pushed };
+  } catch (error) {
+    console.error('Error syncing with remote:', error);
     throw error;
   }
 };
