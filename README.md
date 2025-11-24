@@ -1,7 +1,19 @@
 # BudgetN - Smart Money Management App 👋
 
+rm -r .\node_modules\ 
+rm .\package-lock.json
 npm install --legacy-peer-deps
 
+# Upgrade the Expo SDK
+npm install expo@^54.0.0
+
+# Upgrade dependencies: Upgrade all dependencies to match the installed SDK version 
+# Then run expo-doctor command to check for common problems.
+npx expo install --fix
+npx expo-doctor
+
+
+npx expo start -c --tunnel
 
 BudgetN is a comprehensive expense tracking and budget management application built with Expo and React Native, designed to help users manage their finances effectively.
 
